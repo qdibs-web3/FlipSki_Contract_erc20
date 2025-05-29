@@ -1,0 +1,12 @@
+VRF verified contract (Base Sepolia Testnet) = 0xc7eff13c45D82006781571Cd9C058596be167Cbc
+
+UPGRADED VRF verified contract (Base Sepolia Testnet) = 0x441760cBF5e26D1D6Dde08c9188bBa90741a2e93
+------------------------------------------------------------------------------------------------
+
+npx hardhat run scripts/deploy.js --network baseSepolia
+
+npx hardhat verify --network baseSepolia 0xDb754fbe961821591d18fCa41f06b6D8891d0E0c "0xED946D2F962cF5207E209CE0F16b629A293d0A8F" 500 "10000000000000000" "1000000000000000" "0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE" "735567865254146982589629849288344123898350234912932034375983834189117400818" "0x9e1344a1247c8a1785d0a4681a27152bffdb43666ae5bf7d14d24a5efd44bf71"
+
+const vrfCoordinatorAddress = "0x5C210eF41CD1a72de73bF76eC39637bB0d3d7BEE"; // VRF Coordinator V2.5 for Base Sepolia
+const subscriptionId = "735567865254146982589629849288344123898350234912932034375983834189117400818"; // REPLACE WITH YOUR ACTUAL SUBSCRIPTION ID (uint64)
+const keyHash = "0x9e1344a1247c8a1785d0a4681a27152bffdb43666ae5bf7d14d24a5efd44bf71"; // Example Key Hash for Base Sepolia (30 gwei)
