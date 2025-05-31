@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Plus.sol";
 import "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
 
@@ -21,7 +22,34 @@ import "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.s
  * (_____)                                                      (_____)
 */
 
-contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
+// Custom access control contract to avoid inheritance conflicts
+contract FlipSkiAccess {
+    address private _owner;
+    
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    
+    constructor() {
+        _owner = msg.sender;
+        emit OwnershipTransferred(address(0), msg.sender);
+    }
+    
+    modifier onlyOwner() {
+        require(owner() == msg.sender, "FlipSkiAccess: caller is not the owner");
+        _;
+    }
+    
+    function owner() public view returns (address) {
+        return _owner;
+    }
+    
+    function transferOwnership(address newOwner) public onlyOwner {
+        require(newOwner != address(0), "FlipSkiAccess: new owner is the zero address");
+        emit OwnershipTransferred(_owner, newOwner);
+        _owner = newOwner;
+    }
+}
+
+contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus, FlipSkiAccess {
     IVRFCoordinatorV2Plus private immutable VRF_COORDINATOR;
     uint256 private s_subscriptionId;
     bytes32 private s_keyHash; 
@@ -34,9 +62,6 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
     
     uint16 private constant REQUEST_CONFIRMATIONS = 3; 
     uint32 private constant NUM_WORDS = 1; 
-
-    // Owner address for access control
-    address private _owner;
 
     address payable public feeWallet;
     uint256 public feePercentage;
@@ -71,8 +96,6 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
     mapping(uint256 => Game) public games;
     mapping(uint256 => uint256) public vrfRequestToGameId;
 
-    // Custom ownership event to avoid duplication
-    event OwnershipChanged(address indexed previousOwner, address indexed newOwner);
     event GameRequested(uint256 indexed gameId, address indexed player, CoinSide choice, uint256 wagerAmount, uint256 indexed vrfRequestId);
     event GameSettled(uint256 indexed gameId, address indexed player, CoinSide result, uint256 payoutAmount, uint256 feeAmount, uint256 indexed vrfRequestId, bool playerWon);
     event EmergencyRefund(uint256 indexed gameId, address indexed player, uint256 amount);
@@ -83,12 +106,6 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
     event VRFParametersUpdated(uint256 newSubscriptionId, bytes32 newKeyHash, uint32 newCallbackGasLimit);
     event RandomWordReceived(uint256 indexed gameId, uint256 indexed vrfRequestId, uint256 randomWord); 
     event MaxPendingGamesUpdated(uint256 newMaxPendingGames);
-
-    // Custom modifier to avoid duplication
-    modifier onlyContractOwner() {
-        require(msg.sender == _owner, "FlipSkiBaseVRF: caller is not the owner");
-        _;
-    }
 
     modifier validWager() {
         require(msg.value >= minWager, "Wager is below minimum limit");
@@ -106,6 +123,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         bytes32 _keyHash         
     )
         VRFConsumerBaseV2Plus(_vrfCoordinator) 
+        FlipSkiAccess()
     {
         require(_initialFeeWallet != address(0), "Fee wallet cannot be zero address");
         require(_initialFeePercentage <= 10000, "Fee percentage cannot exceed 10000 basis points (100%)");
@@ -113,10 +131,6 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         require(_initialMaxWager >= _initialMinWager, "Max wager must be greater than or equal to min wager");
         require(_vrfCoordinator != address(0), "VRF Coordinator address cannot be zero");
         require(_subscriptionId != 0, "Subscription ID cannot be zero");
-
-        // Set owner
-        _owner = msg.sender;
-        emit OwnershipChanged(address(0), msg.sender);
 
         feeWallet = _initialFeeWallet;
         feePercentage = _initialFeePercentage;
@@ -126,18 +140,6 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         VRF_COORDINATOR = IVRFCoordinatorV2Plus(_vrfCoordinator);
         s_subscriptionId = _subscriptionId;
         s_keyHash = _keyHash;
-    }
-
-    // Custom ownership functions to avoid duplication
-    function contractOwner() public view returns (address) {
-        return _owner;
-    }
-
-    function transferContractOwnership(address newOwner) public onlyContractOwner {
-        require(newOwner != address(0), "FlipSkiBaseVRF: new owner is the zero address");
-        address oldOwner = _owner;
-        _owner = newOwner;
-        emit OwnershipChanged(oldOwner, newOwner);
     }
 
     function flip(CoinSide _choice)
@@ -237,7 +239,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
      * This function allows the owner to refund a player's wager if the VRF request
      * has not been fulfilled after the emergency timeout period (1 hour).
      */
-    function emergencyRefund(uint256 _gameId) external onlyContractOwner nonReentrant {
+    function emergencyRefund(uint256 _gameId) external onlyOwner nonReentrant {
         Game storage gameToRefund = games[_gameId];
         
         require(gameToRefund.requested, "Game not in requested state");
@@ -282,39 +284,39 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
      * @dev Set the maximum number of pending games allowed per player
      * @param _maxPendingGames New maximum number of pending games per player
      */
-    function setMaxPendingGamesPerPlayer(uint256 _maxPendingGames) external onlyContractOwner {
+    function setMaxPendingGamesPerPlayer(uint256 _maxPendingGames) external onlyOwner {
         require(_maxPendingGames > 0, "Max pending games must be greater than 0");
         maxPendingGamesPerPlayer = _maxPendingGames;
         emit MaxPendingGamesUpdated(_maxPendingGames);
     }
 
     // --- Owner Functions ---
-    function setFeeWallet(address payable _newFeeWallet) external onlyContractOwner {
+    function setFeeWallet(address payable _newFeeWallet) external onlyOwner {
         require(_newFeeWallet != address(0), "New fee wallet cannot be zero address");
         feeWallet = _newFeeWallet;
         emit FeeWalletUpdated(_newFeeWallet);
     }
 
-    function setFeePercentage(uint256 _newFeePercentage) external onlyContractOwner {
+    function setFeePercentage(uint256 _newFeePercentage) external onlyOwner {
         require(_newFeePercentage <= 10000, "Fee percentage cannot exceed 10000 basis points (100%)");
         feePercentage = _newFeePercentage;
         emit FeePercentageUpdated(_newFeePercentage);
     }
 
-    function setMaxWager(uint256 _newMaxWager) external onlyContractOwner {
+    function setMaxWager(uint256 _newMaxWager) external onlyOwner {
         require(_newMaxWager >= minWager, "Max wager must be greater than or equal to min wager");
         maxWager = _newMaxWager;
         emit MaxWagerUpdated(_newMaxWager);
     }
 
-    function setMinWager(uint256 _newMinWager) external onlyContractOwner {
+    function setMinWager(uint256 _newMinWager) external onlyOwner {
         require(_newMinWager > 0, "Min wager must be greater than 0");
         require(maxWager >= _newMinWager, "Max wager must be greater than or equal to new min wager");
         minWager = _newMinWager;
         emit MinWagerUpdated(_newMinWager);
     }
 
-    function setVRFParameters(uint256 _newSubscriptionId, bytes32 _newKeyHash, uint32 _newCallbackGasLimit) external onlyContractOwner {
+    function setVRFParameters(uint256 _newSubscriptionId, bytes32 _newKeyHash, uint32 _newCallbackGasLimit) external onlyOwner {
         require(_newSubscriptionId != 0, "Subscription ID cannot be zero");
         require(_newCallbackGasLimit > 0, "Callback gas limit must be greater than 0");
         s_subscriptionId = _newSubscriptionId;
@@ -323,25 +325,25 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         emit VRFParametersUpdated(s_subscriptionId, s_keyHash, s_callbackGasLimit);
     }
 
-    function pause() external onlyContractOwner whenNotPaused {
+    function pause() external onlyOwner whenNotPaused {
         _pause();
     }
 
-    function unpause() external onlyContractOwner whenPaused {
+    function unpause() external onlyOwner whenPaused {
         _unpause();
     }
 
-    function withdrawStuckTokens(address _tokenAddress, uint256 _amount) external onlyContractOwner {
+    function withdrawStuckTokens(address _tokenAddress, uint256 _amount) external onlyOwner {
         require(_tokenAddress != address(0), "Token address cannot be zero");
         IERC20Minimal token = IERC20Minimal(_tokenAddress);
-        bool success = token.transfer(contractOwner(), _amount);
+        bool success = token.transfer(owner(), _amount);
         require(success, "ERC20 token withdrawal failed");
     }
 
-    function withdrawContractBalance() external onlyContractOwner nonReentrant {
+    function withdrawContractBalance() external onlyOwner nonReentrant {
         uint256 balance = address(this).balance;
         require(balance > 0, "No balance to withdraw");
-        (bool success, ) = payable(contractOwner()).call{value: balance}("");
+        (bool success, ) = payable(owner()).call{value: balance}("");
         require(success, "Contract ETH balance withdrawal failed");
     }
     
