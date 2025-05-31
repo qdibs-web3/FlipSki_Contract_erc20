@@ -27,7 +27,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
     IVRFCoordinatorV2Plus private immutable VRF_COORDINATOR;
     uint256 private s_subscriptionId;
     bytes32 private s_keyHash; 
-    uint32 private s_callbackGasLimit = 280000; 
+    uint32 private s_callbackGasLimit = 300000; 
     
     uint16 private constant REQUEST_CONFIRMATIONS = 3; 
     uint32 private constant NUM_WORDS = 1; 

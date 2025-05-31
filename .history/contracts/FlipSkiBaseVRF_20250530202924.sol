@@ -9,17 +9,13 @@ import "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.s
 /**
  *
  * @title FlipSki on Base
- * @dev A contract by qdibs for a coin flip game on Base with Chainlink VRF V2.5 integrated.
- *  _____                                        _____ 
- *( ___ )                                      ( ___ )
- * |   |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|   | 
- * |   |  _____ _     ___ ____  ____  _  _____  |   | 
- * |   | |  ___| |   |_ _|  _ \/ ___|| |/ /_ _| |   | 
- * |   | | |_  | |    | || |_) \___ \| ' / | |  |   | 
- * |   | |  _| | |___ | ||  __/ ___) | . \ | |  |   | 
- * |   | |_|   |_____|___|_|   |____/|_|\_\___| |   | 
- * |___|~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|___| 
- *(_____)                                      (_____)
+ * @dev A contract for a Base ETH coin flip game with Chainlink VRF V2.5 integrated.
+ * @dev by qdibs.eth
+ * _____ _     ___ ____  ____  _  _____ 
+ *|  ___| |   |_ _|  _ \/ ___|| |/ /_ _|
+ *| |_  | |    | || |_) \___ \| ' / | | 
+ *|  _| | |___ | ||  __/ ___) | . \ | | 
+ *|_|   |_____|___|_|   |____/|_|\_\___|
  *
 */
 
@@ -27,20 +23,31 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
     IVRFCoordinatorV2Plus private immutable VRF_COORDINATOR;
     uint256 private s_subscriptionId;
     bytes32 private s_keyHash; 
-    uint32 private s_callbackGasLimit = 280000; 
+    
+    // @dev Gas limit for VRF callback. Monitor this value carefully as gas costs may vary.
+    // If callback consistently fails due to out-of-gas errors, this value should be increased.
+    // However, increasing this value will increase the cost of VRF requests.
+    // Consider implementing a monitoring system to track gas usage across different network conditions.
+    uint32 private s_callbackGasLimit = 300000; 
     
     uint16 private constant REQUEST_CONFIRMATIONS = 3; 
     uint32 private constant NUM_WORDS = 1; 
 
+    // Owner address for access control
     address private _owner;
 
     address payable public feeWallet;
     uint256 public feePercentage;
     uint256 public maxWager;
     uint256 public minWager;
-    uint256 public constant EMERGENCY_TIMEOUT = 3600;
-    uint256 public maxPendingGamesPerPlayer = 3;
     
+    // @dev Timeout period for emergency refunds (1 hour in seconds)
+    uint256 public constant EMERGENCY_TIMEOUT = 3600;
+    
+    // @dev Maximum number of pending games allowed per player to prevent DoS attacks
+    uint256 public maxPendingGamesPerPlayer = 5;
+    
+    // @dev Mapping to track number of pending games per player
     mapping(address => uint256) public pendingGamesPerPlayer;
 
     enum CoinSide { Heads, Tails }
@@ -55,13 +62,14 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         bool requested;
         bool settled;
         uint256 vrfRequestId;
-        uint256 requestTimestamp; 
+        uint256 requestTimestamp; // Added for emergency refund timeout tracking
     }
 
     uint256 public gameIdCounter;
     mapping(uint256 => Game) public games;
     mapping(uint256 => uint256) public vrfRequestToGameId;
 
+    // Custom ownership event to avoid duplication
     event OwnershipChanged(address indexed previousOwner, address indexed newOwner);
     event GameRequested(uint256 indexed gameId, address indexed player, CoinSide choice, uint256 wagerAmount, uint256 indexed vrfRequestId);
     event GameSettled(uint256 indexed gameId, address indexed player, CoinSide result, uint256 payoutAmount, uint256 feeAmount, uint256 indexed vrfRequestId, bool playerWon);
@@ -74,6 +82,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
     event RandomWordReceived(uint256 indexed gameId, uint256 indexed vrfRequestId, uint256 randomWord); 
     event MaxPendingGamesUpdated(uint256 newMaxPendingGames);
 
+    // Custom modifier to avoid duplication
     modifier onlyContractOwner() {
         require(msg.sender == _owner, "FlipSkiBaseVRF: caller is not the owner");
         _;
@@ -103,6 +112,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         require(_vrfCoordinator != address(0), "VRF Coordinator address cannot be zero");
         require(_subscriptionId != 0, "Subscription ID cannot be zero");
 
+        // Set owner
         _owner = msg.sender;
         emit OwnershipChanged(address(0), msg.sender);
 
@@ -116,6 +126,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         s_keyHash = _keyHash;
     }
 
+    // Custom ownership functions to avoid duplication
     function contractOwner() public view returns (address) {
         return _owner;
     }
@@ -134,6 +145,7 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         nonReentrant
         validWager
     {
+        // Prevent DoS attacks by limiting the number of pending games per player
         require(pendingGamesPerPlayer[msg.sender] < maxPendingGamesPerPlayer, 
                 "Too many pending games for this player");
                 
@@ -145,8 +157,9 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         newGame.choice = _choice;
         newGame.wagerAmount = wagerAmount;
         newGame.requested = true; 
-        newGame.requestTimestamp = block.timestamp; 
+        newGame.requestTimestamp = block.timestamp; // Record request timestamp for emergency refund
 
+        // Increment pending games counter for this player
         pendingGamesPerPlayer[msg.sender]++;
 
         VRFV2PlusClient.RandomWordsRequest memory req = VRFV2PlusClient.RandomWordsRequest({
@@ -181,8 +194,10 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         bool playerWon = (gameToSettle.result == gameToSettle.choice);
         address player = gameToSettle.player;
 
+        // Mark as settled before any external calls for reentrancy protection
         gameToSettle.settled = true;
         
+        // Decrement pending games counter for this player
         if (pendingGamesPerPlayer[player] > 0) {
             pendingGamesPerPlayer[player]--;
         }
@@ -214,6 +229,12 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         emit GameSettled(gameId, player, gameToSettle.result, gameToSettle.payoutAmount, gameToSettle.feeAmount, _requestId, playerWon);
     }
 
+    /**
+     * @dev Emergency refund function for unresolved VRF games
+     * @param _gameId The ID of the game to refund
+     * This function allows the owner to refund a player's wager if the VRF request
+     * has not been fulfilled after the emergency timeout period (1 hour).
+     */
     function emergencyRefund(uint256 _gameId) external onlyContractOwner nonReentrant {
         Game storage gameToRefund = games[_gameId];
         
@@ -225,19 +246,27 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         address player = gameToRefund.player;
         uint256 wagerAmount = gameToRefund.wagerAmount;
         
+        // Mark as settled before external call for reentrancy protection
         gameToRefund.settled = true;
         gameToRefund.requested = false;
         
+        // Decrement pending games counter for this player
         if (pendingGamesPerPlayer[player] > 0) {
             pendingGamesPerPlayer[player]--;
         }
         
+        // Return the player's wager
         (bool success, ) = payable(player).call{value: wagerAmount}("");
         require(success, "Emergency refund transfer failed");
         
         emit EmergencyRefund(_gameId, player, wagerAmount);
     }
 
+    /**
+     * @dev Check if a game is eligible for emergency refund
+     * @param _gameId The ID of the game to check
+     * @return bool True if the game is eligible for emergency refund
+     */
     function isEligibleForEmergencyRefund(uint256 _gameId) external view returns (bool) {
         Game storage game = games[_gameId];
         return (
@@ -247,12 +276,17 @@ contract FlipSkiBaseVRF is Pausable, ReentrancyGuard, VRFConsumerBaseV2Plus {
         );
     }
 
+    /**
+     * @dev Set the maximum number of pending games allowed per player
+     * @param _maxPendingGames New maximum number of pending games per player
+     */
     function setMaxPendingGamesPerPlayer(uint256 _maxPendingGames) external onlyContractOwner {
         require(_maxPendingGames > 0, "Max pending games must be greater than 0");
         maxPendingGamesPerPlayer = _maxPendingGames;
         emit MaxPendingGamesUpdated(_maxPendingGames);
     }
 
+    // --- Owner Functions ---
     function setFeeWallet(address payable _newFeeWallet) external onlyContractOwner {
         require(_newFeeWallet != address(0), "New fee wallet cannot be zero address");
         feeWallet = _newFeeWallet;
