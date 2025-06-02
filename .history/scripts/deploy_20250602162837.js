@@ -13,15 +13,15 @@ async function main() {
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 
   // User-provided parameters
-  const initialFeeWallet = "0x69Edc00a807042895Fe09595Ee27992B3aF8BB20"; // User provided
+  const initialFeeWallet = "0x3b5301569Ba57f5183Bf4cD15880044a36202eB5"; // User provided
   const initialFeePercentage = 1000; // 1000 basis points = 10%
   const initialMaxWagerInEth = "0.01";
   const initialMinWagerInEth = "0.001";
 
-  // Chainlink VRF v2.5 Parameters for Base 
+  // Chainlink VRF v2.5 Parameters for Base Sepolia
   const vrfCoordinatorAddress = "0xd5D517aBE5cF79B7e95eC98dB0f0277788aFF634"; // VRF Coordinator V2.5 for Base Sepolia
-  const subscriptionId = "59788685954549039791911199740148202612233548775787967855992782509537492601169"; // REPLACE WITH YOUR ACTUAL SUBSCRIPTION ID (uint64)
-  const keyHash = "0xdc2f87677b01473c763cb0aee938ed3341512f6057324a584e5944e786144d70"; // Key Hash for Base (30 gwei)
+  const subscriptionId = "735567865254146982589629849288344123898350234912932034375983834189117400818"; // REPLACE WITH YOUR ACTUAL SUBSCRIPTION ID (uint64)
+  const keyHash = "0x9e1344a1247c8a1785d0a4681a27152bffdb43666ae5bf7d14d24a5efd44bf71"; // Example Key Hash for Base Sepolia (30 gwei)
 
   if (subscriptionId === "YOUR_VRF_SUBSCRIPTION_ID") {
     console.error("Error: Please replace 'YOUR_VRF_SUBSCRIPTION_ID' in the deploy script with your actual Chainlink VRF Subscription ID.");
