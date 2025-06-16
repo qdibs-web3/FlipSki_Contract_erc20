@@ -12,7 +12,7 @@ async function main() {
   console.log("Deploying contracts with the account:", deployer.address);
   console.log("Account balance:", (await ethers.provider.getBalance(deployer.address)).toString());
 
-  // User-provided parameters
+  // User-provided parameters hmmm
   const initialFeeWallet = "0x69Edc00a807042895Fe09595Ee27992B3aF8BB20"; // User provided
   const initialFeePercentage = 1000; // 1000 basis points = 10%
   const initialMaxWagerInEth = "0.01";
